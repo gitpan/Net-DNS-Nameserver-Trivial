@@ -1,0 +1,296 @@
+NAME
+    Net::DNS::Nameserver::Trivial - Trivial DNS server, that is based on
+    Net::DNS::Nameserver module.
+
+SYNOPSIS
+            use Net::DNS::Nameserver::Trivial;
+        
+            # Configuration of zone(s) -----------------------------------------
+        
+            my $zones = {
+                     '_'     => {
+                                      'nameservers' => 'ns.example.com',
+                                      'slaves'      => '10.1.0.1'
+                                     },
+                                 
+                     'A'     => {
+                                      'ns.example.com'   => '10.11.12.13',
+                                      'mail.example.com' => '10.11.12.14',
+                                      'web.example.com'  => '10.11.12.15',
+                                      'srv.example.com'  => '10.11.12.16'
+                                     },
+                                
+                     'AAAA'  => {
+                                       'v6.example.com'      =>     'fe80::20c:29ff:fee2:ed62', 
+                                     },
+                                 
+                     'CNAME' => {
+                                              'srv.example.com' => 'dns.example.com'
+                                     },
+                                 
+                     'MX'    => {
+                                       'example.com' => 'mail.example.com'
+                                     },
+                                 
+                     'SOA'   => {
+                                            'example.com' => 'ns.example.com'
+                                     }
+               };
+
+            # Configuration of server ------------------------------------------
+
+            my $params = {
+                     '_' => {
+                                      'IdleTimeout'    => '5',        # seconds
+                                      'LocalAddr'      => '0.0.0.0',  # all interfaces
+                                      'LocalPort'      => '53',       # port
+                                      'Truncate'       => '1',        # truncate to big 
+                                      'Verbose'        => '0',         
+                                      'cache_size'     => '32m',    # cache for DNS
+                                      'expire_time'    => '3d',     # expire of cache
+                                      'init_file'      => '0',      # clear cache at startup
+                                      'log_file'       => '/var/log/dns.log',  
+                                      'log_level'      => 'INFO',              
+                                      'share_file'     => '/var/lib/dns/cache.db',  # cache
+                                      'tcp_timeout'    => '5',            
+                                      'udp_timeout'    => '5',            
+                                      'unlink_on_exit' => '0'        # destroy cache on exit
+                                    }
+                   };
+
+            # Run server -------------------------------------------------------
+        
+            my $ns = Net::DNS::Nameserver::Trivial->new( $zones, $params );
+        $ns->main_loop;
+        
+            #
+            # ...OR SHORT VERSION with configuration files
+            #
+
+            use Config::Tiny;
+            use Net::DNS::Nameserver::Trivial;
+        
+            # Read in config of zone -------------------------------------------
+            my $zones       = Config::Tiny->read( '../etc/dom.ini' );
+        
+            # Read in config of server -----------------------------------------
+            my $params      = Config::Tiny->read( '../etc/dns.ini' );
+
+            # Run server -------------------------------------------------------
+            my $ns = Net::DNS::Nameserver::Trivial->new( $zones, $params );
+            $ns->main_loop;
+
+DESCRIPTION
+    The "Net::DNS::Nameserver::Trivial" is a very simple nameserver, that is
+    sufficient for local domains. It supports cacheing, slaves, zone
+    transfer and common records such as A, AAAA, SOA, NS, MX, TXT, PTR,
+    CNAME. This module was tested in an environment with over 1000 users and
+    for now is running in a production environment.
+
+    The main goal was to produce server, that is very easy in configuration
+    and it can be setup in a few seconds. So You should consider BIND if for
+    some reasons You need more powerful and complex nameserver.
+
+    This module was prepared to cooperete with "Config::Tiny", so it is
+    possible to prepare configuration files and run server with them, as it
+    was shown in an example above.
+
+SUBROUTINES/METHODS
+    new( $zones, $params )
+        This is constructor. You have to pass to it hash with configuration
+        of zones and second hash - with configuration for server.
+
+        The first hash sould contains sections (as shown in a SINOPSIS):
+
+        "_"     This section is a hash, that should contains information of
+                slaves (of our server) and nameservers (in our domain). For
+                example:
+
+                        '_' => {
+                                'nameservers' => 'ns.example.com',
+                                'slaves'      => '10.1.0.1'
+                        }
+
+        "A"     This section is a hash, that is a mapping FDQN to IPv4, for
+                example:
+
+                        'A' => {
+                                  'ns.example.com'   => '10.11.12.13',
+                                  'mail.example.com' => '10.11.12.14',
+                                  'web.example.com'  => '10.11.12.15',
+                                  'srv.example.com'  => '10.11.12.16'
+                                 }
+
+        "AAAA"  This section is a hash, that is a mapping FDQN to IPv6, for
+                example:
+
+                        'AAAA' => {
+                                'v6.example.com'  => 'fe80::20c:29ff:fee2:ed62', 
+                        }
+
+        "MX"    This section is a hash, that contains information about mail
+                servers for domains. For example, if *mail.example.com* is a
+                mail server for domain *example.com*, a configuration should
+                looks like this:
+
+                        'MX' => {
+                                'example.com' => 'mail.example.com'
+                        }
+
+        "CNAME" This section is a hash, that contains aliases for hosts. For
+                example, if alias.example.com and alias1.example.com are
+                aliases for a server srv.example.com, a configuration should
+                looks like this:
+
+                        'CNAME' => {
+                                'srv.example.com' => 'alias.example.com, alias1.example.com'
+                        }
+
+        "SOA"   This section is a hash, that contains information about
+                authoritative nameserver for domain. For example:
+
+                        'SOA' => {
+                                'example.com' => 'ns.example.com'
+                        }
+
+        The second hash should contains variables sufficient for
+        configuration of server, cache, logs, etc. The meaning of hash
+        elements was shown below.
+
+        "IdleTimeout"
+                Timeout for idle connections.
+
+        "LocalAddr"
+                Local IP address to listen on. Server will be listenting on
+                all interfecas if You specify 0.0.0.0.
+
+        "LocalPort"
+                Local port to listen on.
+
+        "Truncate"
+                Truncates UDP packets that are to big for the reply
+
+        "Verbose"
+                Be verbose. It is useful only for debugging.
+
+        "cache_size"
+                A size of cache, that will be used by server.
+
+        "expire_time"
+                Expiration time of entries in a cache. It can be diffrent
+                than TTL value. It is effective if makeing of connection to
+                other server is too expensive (i.e. too long).
+
+        "init_file"
+                Clear cache at startup.
+
+        "log_file"
+                A path to log file.
+
+        "log_level"
+                Log level.
+
+        "share_file"
+                A path to cache file.
+
+        "tcp_timeout"
+                A timeout for TCP connections.
+
+        "udp_timeout"
+                A timeout for UDP connections.
+
+        "unlink_on_exit"
+                Unlink a cache file on exit.
+
+    "main_loop()"
+        This method starts main loop of a nameserver. See an example in a
+        SINOPSIS.
+
+USING CONFIGURATION FILES - examples
+    "Net::DNS::Nameserver::Trivial" was prepared to cooperate with
+    "Config::Tiny" module. It is possible to prepare configuration files for
+    zones and for server and then make server server run using those files.
+
+    Config file for zone *example.com* could looks like this:
+
+            nameservers         = ns.example.com
+            slaves              = 10.1.0.1
+
+            [SOA]
+            example.com         = ns.example.com
+
+            [MX]
+            example.com         = mail.example.com'
+
+            [AAAA]
+
+            [CNAME]
+            srv.example.com     = alias.example.com, alias1.example.com
+
+            [A]
+            ns.example.com      = 10.11.12.13
+            mail.example.com    = 10.11.12.14
+            web.example.com     = 10.11.12.15
+            srv.example.com     = 10.11.12.16
+
+    Config file for server could looks like this:
+
+            tcp_timeout             = 5
+            udp_timeout             = 5
+
+            cache_size      = 32m
+            expire_time     = 3d
+            init_file               = 0
+            unlink_on_exit  = 0
+            share_file      = /var/lib/dns/cache.db
+
+            LocalAddr               = 0.0.0.0
+            LocalPort               = 53
+            Verbose                 = 0
+            Truncate        = 1
+            IdleTimeout     = 5
+
+            log_file                = /var/log/dns.log
+            log_level               = INFO
+
+    And then a code of server shold looks like this:
+
+            use Config::Tiny;
+            use Net::DNS::Nameserver::Trivial;
+        
+            # Read in config of zone -------------------------------------------
+            my $zones       = Config::Tiny->read( '/path/to/zone/file.ini' );
+        
+            # Read in config of server -----------------------------------------
+            my $params      = Config::Tiny->read( '/path/to/server/config.ini' );
+
+            # Run server -------------------------------------------------------
+            my $ns = Net::DNS::Nameserver::Trivial->new( $zones, $params );
+            $ns->main_loop;
+
+    A complete example is placed in the example directory.
+
+DEPENDENCIES
+    Net::IP::XS
+    Net::DNS
+    Log::Tiny
+    List::MoreUtils
+    Cache::FastMmap
+    Regexp::IPv6
+
+INCOMPATIBILITIES
+    None known.
+
+BUGS AND LIMITATIONS
+    I'm sure, that they must be there :-) ...but if You found one, give me a
+    feedback.
+
+AUTHOR
+    Strzelecki Łukasz <l.strzelecki@ita.wat.edu.pl>
+
+LICENCE AND COPYRIGHT
+    This program is free software; you can redistribute it and/or modify it
+    under the same terms as Perl itself.
+
+    See http://www.perl.com/perl/misc/Artistic.html
+
