@@ -2,7 +2,7 @@ package Net::DNS::Nameserver::Trivial;
 
 use vars qw($VERSION);
 
-$VERSION = 0.101;
+$VERSION = 0.102;
 #---------------
 
 use strict;
@@ -188,10 +188,10 @@ sub _handler {
 	my $key = join( q/$/, $qname, $qclass, $qtype );
 	my $val = $self->{ cache }->get( $key );
 	
-	#if( $val ){
-	#	$self->_log_response( $peerhost, $qtype, $qname, $val );
-	#	return @$val;
-	#} 
+	if( $val ){
+		$self->_log_response( $peerhost, $qtype, $qname, $val );
+		return @$val;
+	} 
 	#-------------------------------------------------------------------
 
 	my ($rcode, @ans, @auth, @add, $local);
@@ -494,6 +494,8 @@ sub main_loop {
 }
 #=======================================================================
 1;
+
+=encoding utf8
 
 =head1 NAME
 
