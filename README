@@ -9,7 +9,6 @@ SYNOPSIS
         
             my $zones = {
                      '_'     => {
-                                      'nameservers' => 'ns.example.com',
                                       'slaves'      => '10.1.0.1'
                                      },
                                  
@@ -30,6 +29,10 @@ SYNOPSIS
                                  
                      'MX'    => {
                                        'example.com' => 'mail.example.com'
+                                     },
+                                 
+                     'NS'    => {
+                                            'example.com' => 'ns.example.com'
                                      },
                                  
                      'SOA'   => {
@@ -103,11 +106,9 @@ SUBROUTINES/METHODS
         The first hash sould contains sections (as shown in a SINOPSIS):
 
         "_"     This section is a hash, that should contains information of
-                slaves (of our server) and nameservers (in our domain). For
-                example:
+                slaves of our server. For example:
 
                         '_' => {
-                                'nameservers' => 'ns.example.com',
                                 'slaves'      => '10.1.0.1'
                         }
 
@@ -146,8 +147,15 @@ SUBROUTINES/METHODS
                                 'srv.example.com' => 'alias.example.com, alias1.example.com'
                         }
 
+        "NS"    This section is a hash, that contains information about
+                nameservers for a domain. For example:
+
+                        'NS' => {
+                                'example.com' => 'ns.example.com'
+                        }
+
         "SOA"   This section is a hash, that contains information about
-                authoritative nameserver for domain. For example:
+                authoritative nameserver for a domain. For example:
 
                         'SOA' => {
                                 'example.com' => 'ns.example.com'
@@ -213,8 +221,10 @@ USING CONFIGURATION FILES - examples
 
     Config file for zone *example.com* could looks like this:
 
-            nameservers         = ns.example.com
             slaves              = 10.1.0.1
+
+            [NS]
+            example.com         = ns.example.com
 
             [SOA]
             example.com         = ns.example.com
@@ -238,17 +248,17 @@ USING CONFIGURATION FILES - examples
             tcp_timeout             = 5
             udp_timeout             = 5
 
-            cache_size      = 32m
-            expire_time     = 3d
+            cache_size              = 32m
+            expire_time             = 3d
             init_file               = 0
-            unlink_on_exit  = 0
-            share_file      = /var/lib/dns/cache.db
+            unlink_on_exit          = 0
+            share_file              = /var/lib/dns/cache.db
 
             LocalAddr               = 0.0.0.0
             LocalPort               = 53
             Verbose                 = 0
-            Truncate        = 1
-            IdleTimeout     = 5
+            Truncate                = 1
+            IdleTimeout             = 5
 
             log_file                = /var/log/dns.log
             log_level               = INFO

@@ -2,3 +2,6 @@ Revision history for Perl extension Net::DNS::Nameserver::Trivial.
 
 0.1		2012-10-13 13:51 UTC
 	- First release.
+
+02		2012-10-14 17:42
+	- Added section NS.

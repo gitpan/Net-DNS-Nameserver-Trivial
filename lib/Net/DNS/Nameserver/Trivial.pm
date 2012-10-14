@@ -2,7 +2,7 @@ package Net::DNS::Nameserver::Trivial;
 
 use vars qw($VERSION);
 
-$VERSION = 0.102;
+$VERSION = 0.2;
 #---------------
 
 use strict;
@@ -78,11 +78,12 @@ sub new {
 	$self->{ SL } = { map { $_ => 1 } split( /\s*,\s*/o, $config->{ _ }->{ slaves } ) };
 	
 	# Nameservers for domain +++++++++++++++++++++++++++++++++++++++++++
-	$self->{ NS } = [ uniq split( /\s*,\s*/o, $config->{ _ }->{ nameservers } ) ];
-	#	$self->{ NS } [ qw(
-	#	ns0.example.com
-	#	ns1.example.com
-	#) ];
+	foreach my $name ( keys %{ $config->{ NS } } ){
+		$self->{ NS }->{ $name } = [ uniq split(/\s*,\s*/, $config->{ NS }->{ $name } ) ];
+	}
+	# $self->{ NS } = {
+	#	'example.com'	=> [ qw( ns.example.com ) ],
+	# };
 	
 	# A ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	foreach my $name ( keys %{ $config->{ A } } ){
@@ -188,10 +189,10 @@ sub _handler {
 	my $key = join( q/$/, $qname, $qclass, $qtype );
 	my $val = $self->{ cache }->get( $key );
 	
-	if( $val ){
-		$self->_log_response( $peerhost, $qtype, $qname, $val );
-		return @$val;
-	} 
+	#if( $val ){
+	#	$self->_log_response( $peerhost, $qtype, $qname, $val );
+	#	return @$val;
+	#} 
 	#-------------------------------------------------------------------
 
 	my ($rcode, @ans, @auth, @add, $local);
@@ -315,9 +316,9 @@ MX:
 						
 		$local = 1;
 		$rcode = "NOERROR";
-	}elsif( $qtype eq NS ){
+	}elsif( $qtype eq NS and exists $self->{ NS }->{ $qname } ){
 		# NS -----------------------------------------------------------
-		for my $ns ( @{ $self->{ NS } } ){
+		for my $ns ( @{ $self->{ NS }->{ $qname } } ){
 			push @ans, Net::DNS::RR->new(
 							name	=> $qname,
 							ttl		=> TTL,
@@ -373,7 +374,7 @@ MX:
 		}
 
 		# NS -----------------------------------------------------------
-		for my $ns ( @{ $self->{ NS } } ){
+		for my $ns ( @{ $self->{ NS }->{ $qname } } ){
 			push @ans, Net::DNS::RR->new(
 							name	=> $qname,
 							ttl		=> TTL,
@@ -426,10 +427,12 @@ MX:
 	if( $rcode ne 'NOTIMP' ){
 		if( $local ){ 
 			(my $rdom = $qname) =~ s/^[\d\w]+\.//o;		# fix it!!!
-			for my $ns (@{ $self->{ NS } } ){
+			my   $dom = ( $qtype eq AXFR || $qtype eq SOA ) ? $qname : $rdom;
+			
+			for my $ns ( @{ $self->{ NS }->{ $dom } } ){
 
 				push @auth, Net::DNS::RR->new(
-								name	=> ( $qtype eq AXFR || $qtype eq SOA ) ? $qname : $rdom . q/./,
+								name	=> $dom . q/./,
 								ttl		=> TTL,
 								class	=> IN,
 								type	=> NS,
@@ -510,7 +513,6 @@ Net::DNS::Nameserver::Trivial - Trivial DNS server, that is based on Net::DNS::N
 	
 	my $zones = {
 		 '_' 	 => {
-				  'nameservers' => 'ns.example.com',
 				  'slaves'      => '10.1.0.1'
 				 },
 				 
@@ -531,6 +533,10 @@ Net::DNS::Nameserver::Trivial - Trivial DNS server, that is based on Net::DNS::N
 				 
 		 'MX' 	 => {
 				   'example.com' => 'mail.example.com'
+				 },
+				 
+		 'NS' 	 => {
+					'example.com' => 'ns.example.com'
 				 },
 				 
 		 'SOA' 	 => {
@@ -612,11 +618,10 @@ The first hash sould contains sections (as shown in a L<SINOPSIS>):
 
 =item C<_>
 
-This section is a hash, that should contains information of slaves (of
-our server) and nameservers (in our domain). For example:
+This section is a hash, that should contains information of slaves of
+our server. For example:
 
 	'_' => {
-		'nameservers' => 'ns.example.com',
 		'slaves'      => '10.1.0.1'
 	}
 
@@ -660,10 +665,19 @@ srv.example.com, a configuration should looks like this:
 		'srv.example.com' => 'alias.example.com, alias1.example.com'
 	}
 
+=item C<NS>
+
+This section is a hash, that contains information about nameservers
+for a domain. For example:
+
+	'NS' => {
+		'example.com' => 'ns.example.com'
+	}
+
 =item C<SOA>
 
 This section is a hash, that contains information about authoritative 
-nameserver for domain. For example:
+nameserver for a domain. For example:
 
 	'SOA' => {
 		'example.com' => 'ns.example.com'
@@ -752,8 +766,10 @@ files.
 
 Config file for zone I<example.com> could looks like this:
 
-	nameservers         = ns.example.com
 	slaves              = 10.1.0.1
+
+	[NS]
+	example.com         = ns.example.com
 
 	[SOA]
 	example.com         = ns.example.com
@@ -777,17 +793,17 @@ Config file for server could looks like this:
 	tcp_timeout		= 5
 	udp_timeout		= 5
 
-	cache_size      = 32m
-	expire_time     = 3d
+	cache_size		= 32m
+	expire_time		= 3d
 	init_file		= 0
-	unlink_on_exit  = 0
-	share_file      = /var/lib/dns/cache.db
+	unlink_on_exit		= 0
+	share_file		= /var/lib/dns/cache.db
 
 	LocalAddr		= 0.0.0.0
 	LocalPort		= 53
 	Verbose			= 0
-	Truncate        = 1
-	IdleTimeout  	= 5
+	Truncate		= 1
+	IdleTimeout		= 5
 
 	log_file		= /var/log/dns.log
 	log_level		= INFO
