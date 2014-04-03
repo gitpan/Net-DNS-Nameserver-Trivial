@@ -2,7 +2,7 @@ package Net::DNS::Nameserver::Trivial;
 
 use vars qw($VERSION);
 
-$VERSION = 0.1;
+$VERSION = 0.201;
 #---------------
 
 use strict;
@@ -36,27 +36,27 @@ sub new {
 	
 	# Server +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	$self->{ nameserver } = Net::DNS::Nameserver->new(
-		LocalAddr		=> $params->{ _ }->{ LocalAddr 	 },
-		LocalPort		=> $params->{ _ }->{ LocalPort 	 },
-		Verbose			=> $params->{ _ }->{ Verbose 	 },
-		Truncate        => $params->{ _ }->{ Truncate 	 },
-		IdleTimeout  	=> $params->{ _ }->{ IdleTimeout },
-		ReplyHandler	=> sub { $self->_handler( @_ )   },
+		LocalAddr		=> $params->{ SERVER }->{ address 	},
+		LocalPort		=> $params->{ SERVER }->{ port 	 	},
+		Verbose			=> $params->{ SERVER }->{ verbose 	},
+		Truncate        => $params->{ SERVER }->{ truncate 	},
+		IdleTimeout  	=> $params->{ SERVER }->{ timeout 	},
+		ReplyHandler	=> sub { $self->_handler( @_ )   	},
 	) || die "Couldn't create nameserver object\n";
 	
 	# Resolver +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	$self->{ resolv } =	Net::DNS::Resolver->new(
-							tcp_timeout		=> $params->{ _ }->{ tcp_timeout 	},
-							udp_timeout		=> $params->{ _ }->{ udp_timeout 	},
+							tcp_timeout		=> $params->{ RESOLVER }->{ tcp_timeout 	},
+							udp_timeout		=> $params->{ RESOLVER }->{ udp_timeout 	},
 						);
 						
 	# Cache ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	$self->{ cache }  =	Cache::FastMmap->new(
-							cache_size      => $params->{ _ }->{ cache_size 	},
-							expire_time     => $params->{ _ }->{ expire_time 	},
-							init_file		=> $params->{ _ }->{ init_file 		},
-							unlink_on_exit  => $params->{ _ }->{ unlink_on_exit },
-							share_file      => $params->{ _ }->{ share_file 	},
+							cache_size      => $params->{ CACHE }->{ size 	},
+							expire_time     => $params->{ CACHE }->{ expire },
+							init_file		=> $params->{ CACHE }->{ init 	},
+							unlink_on_exit  => $params->{ CACHE }->{ unlink },
+							share_file      => $params->{ CACHE }->{ file 	},
 							compress        => 1,
 							catch_deadlocks	=> 1,
 							raw_values      => 0,
@@ -64,12 +64,15 @@ sub new {
 						
 	# Log ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	my @log_level = qw( FAKE DEBUG INFO WARN ERROR FATAL );
-	shift @log_level while @log_level and $log_level[ 0 ] ne $params->{ _ }->{ log_level };
+	shift @log_level while @log_level and $log_level[ 0 ] ne $params->{ LOG }->{ level };
 
-	$self->{ log } = Log::Tiny->new( $params->{ _ }->{ log_file } ) or die 'Could not log: ' . Log::Tiny->errstr . "\n";
+	$self->{ log } = Log::Tiny->new( $params->{ LOG }->{ file } ) or die 'Could not log: ' . Log::Tiny->errstr . "\n";
 	$self->{ log }->log_only( @log_level );
 
 	select((select(Log::Tiny::LOG), $| = 1)[0]); # turn off buffering of LOG
+	
+	# Flags ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	$self->{ _ra } = $params->{ FLAGS }->{ ra };
 	
 	# Serial +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	$self->{ serial } = $config->{ _ }->{ serial } || $self->_serial;
@@ -78,11 +81,12 @@ sub new {
 	$self->{ SL } = { map { $_ => 1 } split( /\s*,\s*/o, $config->{ _ }->{ slaves } ) };
 	
 	# Nameservers for domain +++++++++++++++++++++++++++++++++++++++++++
-	$self->{ NS } = [ uniq split( /\s*,\s*/o, $config->{ _ }->{ nameservers } ) ];
-	#	$self->{ NS } [ qw(
-	#	ns0.example.com
-	#	ns1.example.com
-	#) ];
+	foreach my $name ( keys %{ $config->{ NS } } ){
+		$self->{ NS }->{ $name } = [ uniq split(/\s*,\s*/, $config->{ NS }->{ $name } ) ];
+	}
+	# $self->{ NS } = {
+	#	'example.com'	=> [ qw( ns.example.com ) ],
+	# };
 	
 	# A ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	foreach my $name ( keys %{ $config->{ A } } ){
@@ -315,9 +319,9 @@ MX:
 						
 		$local = 1;
 		$rcode = "NOERROR";
-	}elsif( $qtype eq NS ){
+	}elsif( $qtype eq NS and exists $self->{ NS }->{ $qname } ){
 		# NS -----------------------------------------------------------
-		for my $ns ( @{ $self->{ NS } } ){
+		for my $ns ( @{ $self->{ NS }->{ $qname } } ){
 			push @ans, Net::DNS::RR->new(
 							name	=> $qname,
 							ttl		=> TTL,
@@ -368,12 +372,12 @@ MX:
 					ttl     => TTL,
 					class   => $qclass,
 					type    => CNAME,
-					cname => $self->{ CNAME }->{ $name},
+					cname => $self->{ CNAME }->{ $name },
 				);
 		}
 
 		# NS -----------------------------------------------------------
-		for my $ns ( @{ $self->{ NS } } ){
+		for my $ns ( @{ $self->{ NS }->{ $qname } } ){
 			push @ans, Net::DNS::RR->new(
 							name	=> $qname,
 							ttl		=> TTL,
@@ -424,27 +428,31 @@ MX:
 
 	# zapis w lokalnej konfiguracji ------------------------------------
 	if( $rcode ne 'NOTIMP' ){
-		if( $local ){ 
+		if( $local ){
 			(my $rdom = $qname) =~ s/^[\d\w]+\.//o;		# fix it!!!
-			for my $ns (@{ $self->{ NS } } ){
-
-				push @auth, Net::DNS::RR->new(
-								name	=> ( $qtype eq AXFR || $qtype eq SOA ) ? $qname : $rdom . q/./,
-								ttl		=> TTL,
-								class	=> IN,
-								type	=> NS,
-								nsdname => $ns . q/./,
-				);		
+			my   $dom = ( $qtype eq AXFR || $qtype eq SOA ) ? $qname : $rdom;
 			
-				my $name = $self->{ CNAME }->{ $ns } ? $self->{ CNAME }->{ $ns } : $ns;
-				foreach my $ip ( @{$self->{ A }->{ $name } }, @{ $self->{ AAAA }->{ $name } } ){
-					push @add, Net::DNS::RR->new(
-								name    => $ns,
-								ttl     => TTL,
-								class   => IN,
-								type    => $ip =~ /:/o ? AAAA : A,
-								address => $ip,
-							);
+			if( exists $self->{ NS }->{ $dom } ){
+				for my $ns ( @{ $self->{ NS }->{ $dom } } ){
+
+					push @auth, Net::DNS::RR->new(
+									name	=> $dom . q/./,
+									ttl		=> TTL,
+									class	=> IN,
+									type	=> NS,
+									nsdname => $ns . q/./,
+					);		
+				
+					my $name = $self->{ CNAME }->{ $ns } ? $self->{ CNAME }->{ $ns } : $ns;
+					foreach my $ip ( @{$self->{ A }->{ $name } }, @{ $self->{ AAAA }->{ $name } } ){
+						push @add, Net::DNS::RR->new(
+									name    => $ns,
+									ttl     => TTL,
+									class   => IN,
+									type    => $ip =~ /:/o ? AAAA : A,
+									address => $ip,
+								);
+					}
 				}
 			}
 		}
@@ -475,10 +483,15 @@ MX:
 	
 	@ans = sort { ref( $b ) cmp ref( $a ) } @ans;
 	
-	# zapisujemy odpowiedz w pamieci cache -----------------------------
 	my @res = 	$qtype eq AXFR 	? ( $rcode, [ @ans, $ans[0] ], 	[ ], [ ] ) :  ( $rcode, \@ans, \@auth, \@add );
 
-	push @res, { aa => 1 } if $local;			# oznaczamy odpowiedz jako autorytatywna, jesli dotyczy lokalnego zasobu
+	# ustawiamy dodatkowe flagi ----------------------------------------
+	my %flags;
+	$flags{ aa } = 1 if $local and scalar( @auth );
+	$flags{ ra } = 1 if $self->{ _ra };
+	push @res, \%flags;			
+	
+	# zapisujemy odpowiedz w pamieci cache -----------------------------
 	$self->{ cache }->set( $key, \@res );
 	$self->_log_response( $peerhost, $qtype, $qname, \@res );
 	#-------------------------------------------------------------------
@@ -495,6 +508,8 @@ sub main_loop {
 #=======================================================================
 1;
 
+=encoding utf8
+
 =head1 NAME
 
 Net::DNS::Nameserver::Trivial - Trivial DNS server, that is based on Net::DNS::Nameserver module.
@@ -508,7 +523,6 @@ Net::DNS::Nameserver::Trivial - Trivial DNS server, that is based on Net::DNS::N
 	
 	my $zones = {
 		 '_' 	 => {
-				  'nameservers' => 'ns.example.com',
 				  'slaves'      => '10.1.0.1'
 				 },
 				 
@@ -531,31 +545,49 @@ Net::DNS::Nameserver::Trivial - Trivial DNS server, that is based on Net::DNS::N
 				   'example.com' => 'mail.example.com'
 				 },
 				 
+		 'NS' 	 => {
+					'example.com' => 'ns.example.com'
+				 },
+				 
 		 'SOA' 	 => {
 					'example.com' => 'ns.example.com'
 				 }
 	   };
 
 	# Configuration of server ------------------------------------------
-
 	my $params = {
-		 '_' => {
-				  'IdleTimeout'    => '5',        # seconds
-				  'LocalAddr'      => '0.0.0.0',  # all interfaces
-				  'LocalPort'      => '53',       # port
-				  'Truncate'       => '1',        # truncate to big 
-				  'Verbose'        => '0',         
-				  'cache_size'     => '32m',    # cache for DNS
-				  'expire_time'    => '3d',     # expire of cache
-				  'init_file'      => '0',      # clear cache at startup
-				  'log_file'       => '/var/log/dns.log',  
-				  'log_level'      => 'INFO',              
-				  'share_file'     => '/var/lib/dns/cache.db',  # cache
-				  'tcp_timeout'    => '5',            
-				  'udp_timeout'    => '5',            
-				  'unlink_on_exit' => '0'        # destroy cache on exit
-				}
-               };
+	
+		'FLAGS'	 	=> {
+					'ra' => 0, 	# recursion available
+				 },
+
+		'RESOLVER'	=> {
+					'tcp_timeout'	=> 50,
+					'udp_timeout'	=> 50
+				 },
+				 
+		'CACHE'		=> {
+					'size'     		=> 32m,	# size of cache
+					'expire'    	=> 3d,	# expire time of cache
+					'init'			=> 1,	# clear cache at startup
+					'unlink'  		=> 1,	# destroy cache on exit
+					'file'      	=> '../var/lib/cache.db'	# cache
+				 },
+				 
+		'SERVER'	=> {
+					'address'		=> '0.0.0.0', # all interfaces
+					'port'			=> 53,
+					'verbose'		=> 0,
+					'truncate'      => 1,	# truncate too big 
+					'timeout'  		=> 5	# seconds
+				 },
+
+		'LOG'		=> {
+					'file'			=> '/var/log/dns/mainlog.log',
+					'level'			=> 'INFO'
+				 },
+				 
+	};
 
 	# Run server -------------------------------------------------------
 	
@@ -595,6 +627,12 @@ This module was prepared to cooperete with C<Config::Tiny>, so it is
 possible to prepare configuration files and run server with them,
 as it was shown in an example above.
 
+=head1 WARNING
+
+This version is incompatible with previous versions, because of
+new format of second configuration file. However modifications are
+simple.
+
 =head1 SUBROUTINES/METHODS
 
 =over 4
@@ -610,11 +648,10 @@ The first hash sould contains sections (as shown in a L<SINOPSIS>):
 
 =item C<_>
 
-This section is a hash, that should contains information of slaves (of
-our server) and nameservers (in our domain). For example:
+This section is a hash, that should contains information of slaves of
+our server. For example:
 
 	'_' => {
-		'nameservers' => 'ns.example.com',
 		'slaves'      => '10.1.0.1'
 	}
 
@@ -658,10 +695,19 @@ srv.example.com, a configuration should looks like this:
 		'srv.example.com' => 'alias.example.com, alias1.example.com'
 	}
 
+=item C<NS>
+
+This section is a hash, that contains information about nameservers
+for a domain. For example:
+
+	'NS' => {
+		'example.com' => 'ns.example.com'
+	}
+
 =item C<SOA>
 
 This section is a hash, that contains information about authoritative 
-nameserver for domain. For example:
+nameserver for a domain. For example:
 
 	'SOA' => {
 		'example.com' => 'ns.example.com'
@@ -674,52 +720,86 @@ server, cache, logs, etc. The meaning of hash elements was shown below.
 
 =over 8
 
-=item C<IdleTimeout>
+=item C<SERVER>
+
+This section describes options of server.
+
+=over 12
+
+=item C<timeout>
 
 Timeout for idle connections.
 
-=item C<LocalAddr>
+=item C<address>
 
 Local IP address to listen on. Server will be listenting on all 
 interfecas if You specify C<0.0.0.0>.
 
-=item C<LocalPort>
+=item C<port>
 
 Local port to listen on.
 
-=item C<Truncate>
+=item C<truncate>
 
 Truncates UDP packets that are to big for the reply
 
-=item C<Verbose>
+=item C<verbose>
 
 Be verbose. It is useful only for debugging.
 
-=item C<cache_size>
+=back
+
+=item C<CACHE>
+
+This section describes options of server's cache.
+
+=over 12
+
+=item C<size>
 
 A size of cache, that will be used by server.
 
-=item C<expire_time>
+=item C<expire>
 
 Expiration time of entries in a cache. It can be diffrent than TTL value. 
 It is effective if makeing of connection to other server is too expensive
 (i.e. too long).
 
-=item C<init_file>     
+=item C<init>     
 
 Clear cache at startup.
 
-=item C<log_file>
+=item C<file>
+
+A path to cache file.
+
+=item C<unlink>
+
+Unlink a cache file on exit.
+
+=back
+
+=item C<LOG>
+
+This section describes options of server's log.
+
+=over 12
+
+=item C<file>
 
 A path to log file.
        
-=item C<log_level>
+=item C<level>
 
 Log level.
-      
-=item C<share_file>
 
-A path to cache file.
+=back
+
+=item C<RESLOVER>
+
+This section describes options of resolver.
+
+=over 12
 
 =item C<tcp_timeout>
 
@@ -729,9 +809,7 @@ A timeout for TCP connections.
 
 A timeout for UDP connections.
 
-=item C<unlink_on_exit>
-
-Unlink a cache file on exit.
+=back
 
 =back
 
@@ -750,8 +828,10 @@ files.
 
 Config file for zone I<example.com> could looks like this:
 
-	nameservers         = ns.example.com
 	slaves              = 10.1.0.1
+
+	[NS]
+	example.com         = ns.example.com
 
 	[SOA]
 	example.com         = ns.example.com
@@ -772,23 +852,30 @@ Config file for zone I<example.com> could looks like this:
 
 Config file for server could looks like this:
 
-	tcp_timeout		= 5
-	udp_timeout		= 5
+	[FLAGS]
+	ra				= 0
 
-	cache_size      = 32m
-	expire_time     = 3d
-	init_file		= 0
-	unlink_on_exit  = 0
-	share_file      = /var/lib/dns/cache.db
+	[RESOLVER]
+	tcp_timeout		= 50
+	udp_timeout		= 50
 
-	LocalAddr		= 0.0.0.0
-	LocalPort		= 53
-	Verbose			= 0
-	Truncate        = 1
-	IdleTimeout  	= 5
+	[CACHE]
+	size      		= 32m
+	expire    		= 3d
+	init			= 1
+	unlink  		= 1
+	file      		= /var/lib/cache.db
 
-	log_file		= /var/log/dns.log
-	log_level		= INFO
+	[SERVER]
+	address			= 0.0.0.0
+	port			= 53
+	verbose			= 0
+	truncate        = 1
+	timeout  		= 5
+
+	[LOG]
+	file			= /var/log/dns/mainlog.log
+	level			= INFO
 
 And then a code of server shold looks like this:
 

@@ -41,25 +41,39 @@ SYNOPSIS
                };
 
             # Configuration of server ------------------------------------------
-
             my $params = {
-                     '_' => {
-                                      'IdleTimeout'    => '5',        # seconds
-                                      'LocalAddr'      => '0.0.0.0',  # all interfaces
-                                      'LocalPort'      => '53',       # port
-                                      'Truncate'       => '1',        # truncate to big 
-                                      'Verbose'        => '0',         
-                                      'cache_size'     => '32m',    # cache for DNS
-                                      'expire_time'    => '3d',     # expire of cache
-                                      'init_file'      => '0',      # clear cache at startup
-                                      'log_file'       => '/var/log/dns.log',  
-                                      'log_level'      => 'INFO',              
-                                      'share_file'     => '/var/lib/dns/cache.db',  # cache
-                                      'tcp_timeout'    => '5',            
-                                      'udp_timeout'    => '5',            
-                                      'unlink_on_exit' => '0'        # destroy cache on exit
-                                    }
-                   };
+        
+                    'FLAGS'         => {
+                                            'ra' => 0,      # recursion available
+                                     },
+
+                    'RESOLVER'      => {
+                                            'tcp_timeout'   => 50,
+                                            'udp_timeout'   => 50
+                                     },
+                                 
+                    'CACHE'         => {
+                                            'size'                  => 32m, # size of cache
+                                            'expire'        => 3d,  # expire time of cache
+                                            'init'                  => 1,   # clear cache at startup
+                                            'unlink'                => 1,   # destroy cache on exit
+                                            'file'          => '../var/lib/cache.db'        # cache
+                                     },
+                                 
+                    'SERVER'        => {
+                                            'address'               => '0.0.0.0', # all interfaces
+                                            'port'                  => 53,
+                                            'verbose'               => 0,
+                                            'truncate'      => 1,   # truncate too big 
+                                            'timeout'               => 5    # seconds
+                                     },
+
+                    'LOG'           => {
+                                            'file'                  => '/var/log/dns/mainlog.log',
+                                            'level'                 => 'INFO'
+                                     },
+                                 
+            };
 
             # Run server -------------------------------------------------------
         
@@ -97,6 +111,10 @@ DESCRIPTION
     This module was prepared to cooperete with "Config::Tiny", so it is
     possible to prepare configuration files and run server with them, as it
     was shown in an example above.
+
+WARNING
+    This version is incompatible with previous versions, because of new
+    format of second configuration file. However modifications are simple.
 
 SUBROUTINES/METHODS
     new( $zones, $params )
@@ -165,50 +183,51 @@ SUBROUTINES/METHODS
         configuration of server, cache, logs, etc. The meaning of hash
         elements was shown below.
 
-        "IdleTimeout"
-                Timeout for idle connections.
+        "SERVER"
+                This section describes options of server.
 
-        "LocalAddr"
-                Local IP address to listen on. Server will be listenting on
-                all interfecas if You specify 0.0.0.0.
+                "timeout"   Timeout for idle connections.
 
-        "LocalPort"
-                Local port to listen on.
+                "address"   Local IP address to listen on. Server will be
+                            listenting on all interfecas if You specify
+                            0.0.0.0.
 
-        "Truncate"
-                Truncates UDP packets that are to big for the reply
+                "port"      Local port to listen on.
 
-        "Verbose"
-                Be verbose. It is useful only for debugging.
+                "truncate"  Truncates UDP packets that are to big for the
+                            reply
 
-        "cache_size"
-                A size of cache, that will be used by server.
+                "verbose"   Be verbose. It is useful only for debugging.
 
-        "expire_time"
-                Expiration time of entries in a cache. It can be diffrent
-                than TTL value. It is effective if makeing of connection to
-                other server is too expensive (i.e. too long).
+        "CACHE" This section describes options of server's cache.
 
-        "init_file"
-                Clear cache at startup.
+                "size"      A size of cache, that will be used by server.
 
-        "log_file"
-                A path to log file.
+                "expire"    Expiration time of entries in a cache. It can be
+                            diffrent than TTL value. It is effective if
+                            makeing of connection to other server is too
+                            expensive (i.e. too long).
 
-        "log_level"
-                Log level.
+                "init"      Clear cache at startup.
 
-        "share_file"
-                A path to cache file.
+                "file"      A path to cache file.
 
-        "tcp_timeout"
-                A timeout for TCP connections.
+                "unlink"    Unlink a cache file on exit.
 
-        "udp_timeout"
-                A timeout for UDP connections.
+        "LOG"   This section describes options of server's log.
 
-        "unlink_on_exit"
-                Unlink a cache file on exit.
+                "file"      A path to log file.
+
+                "level"     Log level.
+
+        "RESLOVER"
+                This section describes options of resolver.
+
+                "tcp_timeout"
+                            A timeout for TCP connections.
+
+                "udp_timeout"
+                            A timeout for UDP connections.
 
     "main_loop()"
         This method starts main loop of a nameserver. See an example in a
@@ -245,23 +264,30 @@ USING CONFIGURATION FILES - examples
 
     Config file for server could looks like this:
 
-            tcp_timeout             = 5
-            udp_timeout             = 5
+            [FLAGS]
+            ra                              = 0
 
-            cache_size              = 32m
-            expire_time             = 3d
-            init_file               = 0
-            unlink_on_exit          = 0
-            share_file              = /var/lib/dns/cache.db
+            [RESOLVER]
+            tcp_timeout             = 50
+            udp_timeout             = 50
 
-            LocalAddr               = 0.0.0.0
-            LocalPort               = 53
-            Verbose                 = 0
-            Truncate                = 1
-            IdleTimeout             = 5
+            [CACHE]
+            size                    = 32m
+            expire                  = 3d
+            init                    = 1
+            unlink                  = 1
+            file                    = /var/lib/cache.db
 
-            log_file                = /var/log/dns.log
-            log_level               = INFO
+            [SERVER]
+            address                 = 0.0.0.0
+            port                    = 53
+            verbose                 = 0
+            truncate        = 1
+            timeout                 = 5
+
+            [LOG]
+            file                    = /var/log/dns/mainlog.log
+            level                   = INFO
 
     And then a code of server shold looks like this:
 
