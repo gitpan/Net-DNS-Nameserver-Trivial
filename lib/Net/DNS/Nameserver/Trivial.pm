@@ -2,7 +2,7 @@ package Net::DNS::Nameserver::Trivial;
 
 use vars qw($VERSION);
 
-$VERSION = 0.201;
+$VERSION = 0.301;
 #---------------
 
 use strict;
